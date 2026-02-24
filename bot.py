@@ -13,12 +13,10 @@ HEADERS = {
 
 posted_links=set()
 
-# ---------------- PRICE UTILITY ----------------
 def extract_price_number(price_text):
     nums=re.sub(r"[^\d]","",price_text or "")
     return int(nums) if nums else None
 
-# ---------------- SCRAPER ----------------
 def get_product_data(url):
     title="Amazon Deal"
     price=""
@@ -31,10 +29,6 @@ def get_product_data(url):
 
         t=soup.find("span",{"id":"productTitle"})
         if t: title=t.text.strip()
-
-        if title=="Amazon Deal":
-            meta=soup.find("meta",property="og:title")
-            if meta: title=meta.get("content",title)
 
         prices=soup.select("span.a-price span.a-offscreen")
         if prices: price=prices[0].text.strip()
@@ -49,91 +43,68 @@ def get_product_data(url):
             meta_img=soup.find("meta",property="og:image")
             if meta_img: image=meta_img.get("content")
 
-    except:
-        pass
+    except Exception as e:
+        print("SCRAPE ERROR:", e)
 
     return title,price,mrp,image
 
-# ---------------- POST DEAL ----------------
 async def post_deal(bot,url):
+    print("POST DEAL CALLED:", url)
+
     if url in posted_links:
         return
 
     title,price,mrp,image=get_product_data(url)
 
-    p=extract_price_number(price)
-    m=extract_price_number(mrp)
-
-    if not p:
-        return
-
-    # ---------- FILTERS ----------
-    if p>3000:
-        return
-
-    discount=0
-    if p and m and m>p:
-        discount=int((m-p)/m*100)
-
-    if discount<40:
+    if not price:
+        print("No price found")
         return
 
     posted_links.add(url)
 
     caption=f"🔥 {title}\n\n"
     caption+=f"💰 Deal Price: {price}\n"
-
     if mrp:
         caption+=f"🏷 MRP: {mrp}\n"
 
-    if discount:
-        caption+=f"🔥 Save: {discount}% OFF\n"
-
-    caption+=f"\n👉 Buy Now:\n{url}\n\n"
-    caption+="⚡ Limited deal – grab fast!\n"
-    caption+="📦 Join for daily student deals\n\n"
-    caption+="#AmazonDeals #StudentDeals #Loot"
+    caption+=f"\n👉 Buy Now:\n{url}"
 
     if image:
         await bot.send_photo(chat_id=CHANNEL,photo=image,caption=caption)
     else:
         await bot.send_message(chat_id=CHANNEL,text=caption)
 
-# ---------------- USER LINKS ----------------
 async def handle_message(update:Update,context:ContextTypes.DEFAULT_TYPE):
     text=update.message.text.strip()
+    print("MESSAGE RECEIVED:", text)
+
     if text.startswith("http") and ("amazon" in text or "amzn" in text):
         await post_deal(context.bot,text)
 
-# ---------------- AUTO DEALS LOOP ----------------
 async def auto_deals(bot):
     await asyncio.sleep(60)
-
     while True:
         try:
+            print("Checking Amazon deals...")
+
             r=requests.get("https://www.amazon.in/deals",headers=HEADERS,timeout=10)
             soup=BeautifulSoup(r.text,"lxml")
             links=soup.select("a[href*='/dp/']")
 
-            for a in links[:8]:
+            for a in links[:3]:
                 link="https://www.amazon.in"+a.get("href").split("?")[0]
                 await post_deal(bot,link)
 
-        except:
-            pass
+        except Exception as e:
+            print("AUTO DEAL ERROR:", e)
 
         await asyncio.sleep(3600)
 
-# ---------------- START BACKGROUND TASK ----------------
 async def start_background(app):
     asyncio.create_task(auto_deals(app.bot))
 
-# ---------------- BOT INIT ----------------
 app = ApplicationBuilder().token(TOKEN).concurrent_updates(False).build()
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_message))
 app.post_init=start_background
 
-app.run_polling(
-    drop_pending_updates=True,
-    close_loop=False
-)
+app.run_polling(drop_pending_updates=True, close_loop=False)
