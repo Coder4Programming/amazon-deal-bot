@@ -1,8 +1,10 @@
-import requests, re
+import os
+import requests
+import re
 from bs4 import BeautifulSoup
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
-TOKEN = "7743567221:AAEAmM3dWYbQ19dS2IyUMgclBzzo7aK3MMA"
+TOKEN = os.environ.get("TOKEN")
 CHANNEL = "@dailydeals4students"
 
 HEADERS = {
@@ -41,7 +43,7 @@ def get_product_data(url):
         if p:
             price = p.text.strip()
 
-        # MRP (strike price)
+        # MRP
         mrp_tag = soup.find("span", {"class": "a-price a-text-price"})
         if mrp_tag:
             mrp_span = mrp_tag.find("span", {"class": "a-offscreen"})
@@ -74,7 +76,7 @@ async def handle_message(update, context: ContextTypes.DEFAULT_TYPE):
         if mrp:
             caption += f"🏷 MRP: {mrp}\n"
 
-        # discount calculation
+        # Discount calculation
         try:
             if price and mrp:
                 p_val = extract_price_number(price)
