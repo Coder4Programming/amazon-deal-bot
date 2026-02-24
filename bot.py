@@ -26,7 +26,7 @@ def make_affiliate(url):
 # ---------- expand ----------
 def expand(url):
     try:
-        r=requests.get(url,headers=HEADERS,allow_redirects=True,timeout=10)
+        r=requests.get(url,headers=HEADERS,allow_redirects=True,timeout=20)
         return r.url
     except:
         return url
@@ -41,31 +41,59 @@ def scrape(url):
     image=None
 
     try:
-        r=requests.get(url,headers=HEADERS,timeout=10)
+        r=requests.get(url,headers=HEADERS,timeout=20)
         soup=BeautifulSoup(r.text,"lxml")
 
+        # title
         t=soup.find("span",{"id":"productTitle"})
         if t: title=t.text.strip()
 
+        # price
         p=soup.select("span.a-price span.a-offscreen")
         if p: price=p[0].text.strip()
 
+        # ----- STRONG MRP DETECTION -----
         m=soup.select_one("span.a-price.a-text-price span.a-offscreen")
         if m: mrp=m.text.strip()
 
-        img=soup.find("img",{"id":"landingImage"})
-        if img and img.get("src"): image=img["src"]
+        if not mrp:
+            m2=soup.find("span",{"id":"priceblock_ourprice"})
+            if m2: mrp=m2.text.strip()
 
+        if not mrp:
+            m3=soup.find("span",{"id":"priceblock_dealprice"})
+            if m3: mrp=m3.text.strip()
+
+        if not mrp:
+            all_prices=soup.find_all("span")
+            for a in all_prices:
+                txt=a.text.strip()
+                if "₹" in txt and len(txt)<15 and txt!=price:
+                    mrp=txt
+                    break
+
+        # rating
         r_tag=soup.find("span",{"class":"a-icon-alt"})
         if r_tag:
             rating=r_tag.text.split(" ")[0]
 
+        # reviews
         rev=soup.find("span",{"id":"acrCustomerReviewText"})
         if rev:
             reviews=rev.text.strip()
 
-    except:
-        pass
+        # image
+        img=soup.find("img",{"id":"landingImage"})
+        if img and img.get("src"):
+            image=img["src"]
+
+        if not image:
+            meta=soup.find("meta",property="og:image")
+            if meta:
+                image=meta.get("content")
+
+    except Exception as e:
+        print("SCRAPE ERROR:",e)
 
     return title,price,mrp,rating,reviews,image
 
@@ -83,7 +111,7 @@ async def post(bot,url):
     if not price:
         return
 
-    # ----- discount calculation -----
+    # ----- discount calc -----
     discount=""
     try:
         if price and mrp:
@@ -143,7 +171,7 @@ async def auto(bot):
     while True:
         try:
             for page in pages:
-                r=requests.get(page,headers=HEADERS,timeout=10)
+                r=requests.get(page,headers=HEADERS,timeout=20)
                 soup=BeautifulSoup(r.text,"lxml")
                 links=soup.select("a[href*='/dp/']")
 
@@ -154,6 +182,7 @@ async def auto(bot):
 
         except Exception as e:
             print("AUTO ERROR:",e)
+            await asyncio.sleep(20)
 
         await asyncio.sleep(120)
 
@@ -161,7 +190,15 @@ async def auto(bot):
 async def start(app):
     asyncio.create_task(auto(app.bot))
 
-app = ApplicationBuilder().token(TOKEN).build()
+app = (
+    ApplicationBuilder()
+    .token(TOKEN)
+    .connect_timeout(30)
+    .read_timeout(30)
+    .write_timeout(30)
+    .build()
+)
+
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle))
 app.post_init=start
 
