@@ -1,4 +1,4 @@
-import os, requests, re, json
+import os, requests, re, json, asyncio
 from bs4 import BeautifulSoup
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
@@ -6,9 +6,11 @@ TOKEN = os.environ.get("TOKEN")
 CHANNEL = "@dailydeals4students"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "User-Agent": "Mozilla/5.0",
     "Accept-Language": "en-IN,en;q=0.9",
 }
+
+posted_links = set()
 
 def expand_url(url):
     try:
@@ -22,86 +24,116 @@ def extract_price_number(price_text):
     return int(nums) if nums else None
 
 def get_product_data(url):
-    title = "Amazon Deal"
-    price = ""
-    mrp = ""
-    image = None
+    title="Amazon Deal"
+    price=""
+    mrp=""
+    image=None
 
     try:
-        r = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(r.text, "lxml")
+        r=requests.get(url,headers=HEADERS,timeout=10)
+        soup=BeautifulSoup(r.text,"lxml")
 
-        # TITLE method 1
-        t = soup.find("span", {"id": "productTitle"})
-        if t:
-            title = t.text.strip()
+        # TITLE
+        t=soup.find("span",{"id":"productTitle"})
+        if t: title=t.text.strip()
 
-        # TITLE fallback (meta tag)
-        if title == "Amazon Deal":
-            meta = soup.find("meta", property="og:title")
-            if meta:
-                title = meta.get("content", title)
+        if title=="Amazon Deal":
+            meta=soup.find("meta",property="og:title")
+            if meta: title=meta.get("content",title)
 
-        # PRICE (first visible price)
-        prices = soup.select("span.a-price span.a-offscreen")
-        if prices:
-            price = prices[0].text.strip()
+        # PRICE
+        prices=soup.select("span.a-price span.a-offscreen")
+        if prices: price=prices[0].text.strip()
 
-        # MRP (strike price)
-        mrp_tag = soup.select_one("span.a-price.a-text-price span.a-offscreen")
-        if mrp_tag:
-            mrp = mrp_tag.text.strip()
+        # MRP
+        mrp_tag=soup.select_one("span.a-price.a-text-price span.a-offscreen")
+        if mrp_tag: mrp=mrp_tag.text.strip()
 
         # IMAGE method 1
-        img = soup.find("img", {"id": "landingImage"})
-        if img and img.get("src"):
-            image = img["src"]
+        img=soup.find("img",{"id":"landingImage"})
+        if img and img.get("src"): image=img["src"]
 
-        # IMAGE fallback
+        # IMAGE method 2
         if not image:
-            meta_img = soup.find("meta", property="og:image")
-            if meta_img:
-                image = meta_img.get("content")
+            meta_img=soup.find("meta",property="og:image")
+            if meta_img: image=meta_img.get("content")
+
+        # IMAGE method 3 JSON scrape
+        if not image:
+            scripts=soup.find_all("script",type="application/ld+json")
+            for s in scripts:
+                try:
+                    data=json.loads(s.string)
+                    if isinstance(data,dict):
+                        if "image" in data:
+                            image=data["image"]
+                            break
+                except: pass
 
     except:
         pass
 
-    return title, price, mrp, image
+    return title,price,mrp,image
 
-async def handle_message(update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
+async def post_deal(bot,url):
+    if url in posted_links:
+        return
+    posted_links.add(url)
 
+    real=expand_url(url)
+    title,price,mrp,image=get_product_data(real)
+
+    caption=f"🔥 {title}\n\n"
+    if price: caption+=f"💰 Deal Price: {price}\n"
+    if mrp: caption+=f"🏷 MRP: {mrp}\n"
+
+    try:
+        if price and mrp:
+            p=extract_price_number(price)
+            m=extract_price_number(mrp)
+            if p and m and m>p:
+                caption+=f"🔥 Save: {int((m-p)/m*100)}% OFF\n"
+    except: pass
+
+    caption+=f"\n👉 Buy Now:\n{url}"
+
+    if image:
+        await bot.send_photo(chat_id=CHANNEL,photo=image,caption=caption)
+    else:
+        await bot.send_message(chat_id=CHANNEL,text=caption)
+
+async def handle_message(update,context:ContextTypes.DEFAULT_TYPE):
+    text=update.message.text.strip()
     if text.startswith("http") and ("amazon" in text or "amzn" in text):
+        await post_deal(context.bot,text)
 
-        real_url = expand_url(text)
-        title, price, mrp, image = get_product_data(real_url)
-
-        caption = f"🔥 {title}\n\n"
-
-        if price:
-            caption += f"💰 Deal Price: {price}\n"
-
-        if mrp:
-            caption += f"🏷 MRP: {mrp}\n"
-
-        # discount safe calculation
+# AUTO DAILY DEALS SCRAPER
+async def auto_deals(bot):
+    while True:
         try:
-            if price and mrp:
-                p_val = extract_price_number(price)
-                m_val = extract_price_number(mrp)
-                if p_val and m_val and m_val > p_val:
-                    discount = int(((m_val - p_val) / m_val) * 100)
-                    caption += f"🔥 Save: {discount}% OFF\n"
+            url="https://www.amazon.in/deals"
+            r=requests.get(url,headers=HEADERS,timeout=10)
+            soup=BeautifulSoup(r.text,"lxml")
+
+            links=soup.select("a[href*='/dp/']")
+            count=0
+
+            for a in links:
+                link="https://www.amazon.in"+a.get("href").split("?")[0]
+                if link not in posted_links:
+                    await post_deal(bot,link)
+                    count+=1
+                if count>=3:
+                    break
+
         except:
             pass
 
-        caption += f"\n👉 Buy Now:\n{text}"
+        await asyncio.sleep(3600)  # check every 1 hour
 
-        if image:
-            await context.bot.send_photo(chat_id=CHANNEL, photo=image, caption=caption)
-        else:
-            await context.bot.send_message(chat_id=CHANNEL, text=caption)
+async def on_start(app):
+    app.create_task(auto_deals(app.bot))
 
-app = ApplicationBuilder().token(TOKEN).build()
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+app=ApplicationBuilder().token(TOKEN).post_init(on_start).build()
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_message))
 app.run_polling()
