@@ -13,10 +13,20 @@ HEADERS = {
 
 posted_links=set()
 
+# ---------------- EXPAND SHORT LINK ----------------
+def expand_url(url):
+    try:
+        r=requests.get(url,headers=HEADERS,allow_redirects=True,timeout=10)
+        return r.url
+    except:
+        return url
+
+# ---------------- PRICE UTILITY ----------------
 def extract_price_number(price_text):
     nums=re.sub(r"[^\d]","",price_text or "")
     return int(nums) if nums else None
 
+# ---------------- SCRAPER ----------------
 def get_product_data(url):
     title="Amazon Deal"
     price=""
@@ -29,6 +39,10 @@ def get_product_data(url):
 
         t=soup.find("span",{"id":"productTitle"})
         if t: title=t.text.strip()
+
+        if title=="Amazon Deal":
+            meta=soup.find("meta",property="og:title")
+            if meta: title=meta.get("content",title)
 
         prices=soup.select("span.a-price span.a-offscreen")
         if prices: price=prices[0].text.strip()
@@ -48,13 +62,15 @@ def get_product_data(url):
 
     return title,price,mrp,image
 
+# ---------------- POST DEAL ----------------
 async def post_deal(bot,url):
     print("POST DEAL CALLED:", url)
 
     if url in posted_links:
         return
 
-    title,price,mrp,image=get_product_data(url)
+    real_url=expand_url(url)
+    title,price,mrp,image=get_product_data(real_url)
 
     if not price:
         print("No price found")
@@ -64,6 +80,7 @@ async def post_deal(bot,url):
 
     caption=f"🔥 {title}\n\n"
     caption+=f"💰 Deal Price: {price}\n"
+
     if mrp:
         caption+=f"🏷 MRP: {mrp}\n"
 
@@ -74,6 +91,7 @@ async def post_deal(bot,url):
     else:
         await bot.send_message(chat_id=CHANNEL,text=caption)
 
+# ---------------- USER LINKS ----------------
 async def handle_message(update:Update,context:ContextTypes.DEFAULT_TYPE):
     text=update.message.text.strip()
     print("MESSAGE RECEIVED:", text)
@@ -81,6 +99,7 @@ async def handle_message(update:Update,context:ContextTypes.DEFAULT_TYPE):
     if text.startswith("http") and ("amazon" in text or "amzn" in text):
         await post_deal(context.bot,text)
 
+# ---------------- AUTO DEALS LOOP ----------------
 async def auto_deals(bot):
     await asyncio.sleep(60)
     while True:
@@ -100,9 +119,11 @@ async def auto_deals(bot):
 
         await asyncio.sleep(3600)
 
+# ---------------- START BACKGROUND TASK ----------------
 async def start_background(app):
     asyncio.create_task(auto_deals(app.bot))
 
+# ---------------- BOT INIT ----------------
 app = ApplicationBuilder().token(TOKEN).concurrent_updates(False).build()
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_message))
 app.post_init=start_background
