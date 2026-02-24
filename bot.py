@@ -13,7 +13,21 @@ HEADERS = {
     "Referer": "https://www.amazon.in/",
 }
 
-posted=set()
+# ---------- MEMORY FILE ----------
+MEMORY_FILE="posted.txt"
+
+def load_memory():
+    try:
+        with open(MEMORY_FILE,"r") as f:
+            return set(f.read().splitlines())
+    except:
+        return set()
+
+def save_memory(link):
+    with open(MEMORY_FILE,"a") as f:
+        f.write(link+"\n")
+
+posted=load_memory()
 
 # ---------- affiliate ----------
 def make_affiliate(url):
@@ -100,6 +114,7 @@ async def post(bot,url):
         return
 
     posted.add(real)
+    save_memory(real)
 
     caption=f"🔥 {title}\n\n"
     caption+=f"💰 Deal Price: {price}\n"
@@ -130,7 +145,7 @@ async def handle(update:Update,context:ContextTypes.DEFAULT_TYPE):
         if "amazon" in u or "amzn" in u:
             await post(context.bot,u)
 
-# ---------- AUTO ----------
+# ---------- AUTO DEALS ----------
 async def auto(bot):
     await asyncio.sleep(10)
 
@@ -145,24 +160,21 @@ async def auto(bot):
     while True:
         try:
             for page in pages:
-
                 r=requests.get(page,headers=HEADERS,timeout=20)
                 soup=BeautifulSoup(r.text,"lxml")
                 links=soup.select("a[href*='/dp/']")
 
-                # each page se 2-3 deals
-                picks=random.sample(links[:15], min(3,len(links)))
-
-                for pick in picks:
-                    link="https://www.amazon.in"+pick.get("href").split("?")[0]
-                    await post(bot,link)
-                    await asyncio.sleep(3)   # spam safe delay
+                if links:
+                    picks=random.sample(links[:15], min(3,len(links)))
+                    for pick in picks:
+                        link="https://www.amazon.in"+pick.get("href").split("?")[0]
+                        await post(bot,link)
+                        await asyncio.sleep(3)
 
         except Exception as e:
             print("AUTO ERROR:",e)
             await asyncio.sleep(20)
 
-        # full cycle delay
         await asyncio.sleep(90)
 
 # ---------- START ----------
@@ -183,4 +195,3 @@ app.post_init=start
 
 print("BOT STARTING...")
 app.run_polling(drop_pending_updates=True)
-
