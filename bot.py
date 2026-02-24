@@ -138,25 +138,32 @@ async def auto(bot):
         "https://www.amazon.in/gp/bestsellers",
         "https://www.amazon.in/gp/new-releases",
         "https://www.amazon.in/deals",
+        "https://www.amazon.in/gp/movers-and-shakers",
+        "https://www.amazon.in/s?k=deal+of+the+day",
     ]
 
     while True:
         try:
             for page in pages:
+
                 r=requests.get(page,headers=HEADERS,timeout=20)
                 soup=BeautifulSoup(r.text,"lxml")
                 links=soup.select("a[href*='/dp/']")
 
-                if links:
-                    pick=random.choice(links[:8])
+                # each page se 2-3 deals
+                picks=random.sample(links[:15], min(3,len(links)))
+
+                for pick in picks:
                     link="https://www.amazon.in"+pick.get("href").split("?")[0]
                     await post(bot,link)
+                    await asyncio.sleep(3)   # spam safe delay
 
         except Exception as e:
             print("AUTO ERROR:",e)
             await asyncio.sleep(20)
 
-        await asyncio.sleep(120)
+        # full cycle delay
+        await asyncio.sleep(90)
 
 # ---------- START ----------
 async def start(app):
@@ -176,3 +183,4 @@ app.post_init=start
 
 print("BOT STARTING...")
 app.run_polling(drop_pending_updates=True)
+
