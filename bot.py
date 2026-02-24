@@ -31,11 +31,11 @@ def expand(url):
     except:
         return url
 
-# ---------- scraper ----------
+# ---------- SCRAPER ----------
 def scrape(url):
     title="Amazon Deal"
     price=""
-    mrp=""
+    original=""
     rating=""
     reviews=""
     image=None
@@ -48,48 +48,9 @@ def scrape(url):
         t=soup.find("span",{"id":"productTitle"})
         if t: title=t.text.strip()
 
-        # price
+        # deal price
         p=soup.select("span.a-price span.a-offscreen")
         if p: price=p[0].text.strip()
-
-        # -------- ULTRA STRONG MRP DETECTION --------
-
-        # method 1
-        m=soup.select_one("span.a-price.a-text-price span.a-offscreen")
-        if m: mrp=m.text.strip()
-
-        # method 2
-        if not mrp:
-            m2=soup.find("span",{"id":"priceblock_ourprice"})
-            if m2: mrp=m2.text.strip()
-
-        # method 3
-        if not mrp:
-            m3=soup.find("span",{"id":"priceblock_dealprice"})
-            if m3: mrp=m3.text.strip()
-
-        # method 4 (JSON/script detection)
-        if not mrp:
-            scripts=soup.find_all("script")
-            for s in scripts:
-                if "₹" in s.text:
-                    matches=re.findall(r'₹[\d,]+',s.text)
-                    if matches:
-                        for val in matches:
-                            if val!=price:
-                                mrp=val
-                                break
-                if mrp:
-                    break
-
-        # method 5 fallback
-        if not mrp:
-            all_prices=soup.find_all("span")
-            for a in all_prices:
-                txt=a.text.strip()
-                if "₹" in txt and len(txt)<15 and txt!=price:
-                    mrp=txt
-                    break
 
         # rating
         r_tag=soup.find("span",{"class":"a-icon-alt"})
@@ -106,17 +67,25 @@ def scrape(url):
         if img and img.get("src"):
             image=img["src"]
 
-        if not image:
-            meta=soup.find("meta",property="og:image")
-            if meta:
-                image=meta.get("content")
+        # -------- ORIGINAL PRICE FROM SEARCH --------
+        if title!="Amazon Deal":
+            search="https://www.amazon.in/s?k="+requests.utils.quote(title[:40])
+            r2=requests.get(search,headers=HEADERS,timeout=20)
+            soup2=BeautifulSoup(r2.text,"lxml")
+
+            prices=soup2.select("span.a-price span.a-offscreen")
+            if prices:
+                original=prices[0].text.strip()
+
+        if original==price:
+            original=""
 
     except Exception as e:
         print("SCRAPE ERROR:",e)
 
-    return title,price,mrp,rating,reviews,image
+    return title,price,original,rating,reviews,image
 
-# ---------- post ----------
+# ---------- POST ----------
 async def post(bot,url):
 
     real=expand(url)
@@ -125,34 +94,18 @@ async def post(bot,url):
     if real in posted:
         return
 
-    title,price,mrp,rating,reviews,image=scrape(real)
+    title,price,original,rating,reviews,image=scrape(real)
 
     if not price:
         return
-
-    # discount calc
-    discount=""
-    try:
-        if price and mrp:
-            p=int(re.sub(r"\D","",price))
-            m=int(re.sub(r"\D","",mrp))
-            if m>p and m>p*1.1:
-                discount=str(int((m-p)/m*100))+"% OFF"
-            else:
-                mrp=""
-    except:
-        mrp=""
 
     posted.add(real)
 
     caption=f"🔥 {title}\n\n"
     caption+=f"💰 Deal Price: {price}\n"
 
-    if mrp:
-        caption+=f"🏷 MRP: {mrp}\n"
-
-    if discount:
-        caption+=f"🔥 Save: {discount}\n"
+    if original:
+        caption+=f"🏷 Original Price: {original}\n"
 
     if rating:
         caption+=f"⭐ Rating: {rating}"
@@ -168,7 +121,7 @@ async def post(bot,url):
     else:
         await bot.send_message(chat_id=CHANNEL,text=caption,reply_markup=markup)
 
-# ---------- manual ----------
+# ---------- MANUAL ----------
 async def handle(update:Update,context:ContextTypes.DEFAULT_TYPE):
     text=update.message.text
     urls=re.findall(r'https?://\S+', text)
@@ -177,7 +130,7 @@ async def handle(update:Update,context:ContextTypes.DEFAULT_TYPE):
         if "amazon" in u or "amzn" in u:
             await post(context.bot,u)
 
-# ---------- auto ----------
+# ---------- AUTO ----------
 async def auto(bot):
     await asyncio.sleep(10)
 
@@ -205,7 +158,7 @@ async def auto(bot):
 
         await asyncio.sleep(120)
 
-# ---------- start ----------
+# ---------- START ----------
 async def start(app):
     asyncio.create_task(auto(app.bot))
 
