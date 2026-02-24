@@ -13,8 +13,8 @@ HEADERS = {
     "Referer": "https://www.amazon.in/",
 }
 
-# ---------- MEMORY FILE ----------
-MEMORY_FILE="posted.txt"
+# ---------- ASIN MEMORY ----------
+MEMORY_FILE="posted_asin.txt"
 
 def load_memory():
     try:
@@ -23,11 +23,19 @@ def load_memory():
     except:
         return set()
 
-def save_memory(link):
+def save_memory(asin):
     with open(MEMORY_FILE,"a") as f:
-        f.write(link+"\n")
+        f.write(asin+"\n")
 
 posted=load_memory()
+
+# ---------- ASIN EXTRACT ----------
+def get_asin(url):
+    m=re.search(r"/dp/([A-Z0-9]{10})",url)
+    if m: return m.group(1)
+    m=re.search(r"/product/([A-Z0-9]{10})",url)
+    if m: return m.group(1)
+    return None
 
 # ---------- affiliate ----------
 def make_affiliate(url):
@@ -103,18 +111,22 @@ def scrape(url):
 async def post(bot,url):
 
     real=expand(url)
-    aff=make_affiliate(real)
-
-    if real in posted:
+    asin=get_asin(real)
+    if not asin:
         return
+
+    if asin in posted:
+        return
+
+    aff=make_affiliate(real)
 
     title,price,original,rating,reviews,image=scrape(real)
 
     if not price:
         return
 
-    posted.add(real)
-    save_memory(real)
+    posted.add(asin)
+    save_memory(asin)
 
     caption=f"🔥 {title}\n\n"
     caption+=f"💰 Deal Price: {price}\n"
