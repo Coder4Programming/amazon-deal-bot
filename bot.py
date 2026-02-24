@@ -1,4 +1,4 @@
-import os, requests, asyncio, random
+import os, requests, asyncio, random, re
 from bs4 import BeautifulSoup
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
@@ -15,7 +15,7 @@ HEADERS = {
 
 posted_links=set()
 
-# ---------- Affiliate link maker ----------
+# ---------- Affiliate link ----------
 def make_affiliate_link(url):
     if "tag=" in url:
         return url
@@ -37,6 +37,8 @@ def get_product_data(url):
     price=""
     mrp=""
     image=None
+    rating=""
+    reviews=""
 
     try:
         r=requests.get(url,headers=HEADERS,timeout=10)
@@ -54,10 +56,20 @@ def get_product_data(url):
         img=soup.find("img",{"id":"landingImage"})
         if img and img.get("src"): image=img["src"]
 
+        # ⭐ rating
+        r_tag=soup.find("span",{"class":"a-icon-alt"})
+        if r_tag:
+            rating=r_tag.text.split(" ")[0]
+
+        # 🗣 review count
+        rev=soup.find("span",{"id":"acrCustomerReviewText"})
+        if rev:
+            reviews=rev.text.strip()
+
     except:
         pass
 
-    return title,price,mrp,image
+    return title,price,mrp,image,rating,reviews
 
 # ---------- Post deal ----------
 async def post_deal(bot,url):
@@ -67,17 +79,41 @@ async def post_deal(bot,url):
     real=expand_url(url)
     aff=make_affiliate_link(real)
 
-    title,price,mrp,image=get_product_data(real)
+    title,price,mrp,image,rating,reviews=get_product_data(real)
 
     if not price:
         return
+
+    # ---- Discount calc ----
+    discount=""
+    try:
+        if price and mrp:
+            p=int(re.sub(r"\D","",price))
+            m=int(re.sub(r"\D","",mrp))
+            if m>p:
+                discount=str(int((m-p)/m*100))+"% OFF"
+            else:
+                mrp=""
+    except:
+        mrp=""
 
     posted_links.add(url)
 
     caption=f"🔥 {title}\n\n"
     caption+=f"💰 Deal Price: {price}\n"
+
     if mrp:
         caption+=f"🏷 MRP: {mrp}\n"
+
+    if discount:
+        caption+=f"🔥 Save: {discount}\n"
+
+    if rating:
+        caption+=f"⭐ Rating: {rating}"
+        if reviews:
+            caption+=f" ({reviews})"
+        caption+="\n"
+
     caption+=f"\n👉 Buy Now:\n{aff}"
 
     if image:
@@ -91,7 +127,7 @@ async def handle_message(update:Update,context:ContextTypes.DEFAULT_TYPE):
     if text.startswith("http") and ("amazon" in text or "amzn" in text):
         await post_deal(context.bot,text)
 
-# ---------- NO-FILTER AMAZON SCAN ----------
+# ---------- AUTO AMAZON SCAN ----------
 async def auto_deals(bot):
     await asyncio.sleep(10)
 
@@ -117,7 +153,7 @@ async def auto_deals(bot):
         except:
             pass
 
-        await asyncio.sleep(120)   # 2-minute live mode
+        await asyncio.sleep(120)   # 2 min live mode
 
 # ---------- Startup ----------
 async def start_background(app):
