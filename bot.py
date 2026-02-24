@@ -113,28 +113,37 @@ async def handle_message(update:Update,context:ContextTypes.DEFAULT_TYPE):
     if text.startswith("http") and ("amazon" in text or "amzn" in text):
         await post_deal(context.bot,text)
 
-# ---------------- AUTO DEALS LOOP ----------------
+# ---------------- AUTO DEALS LOOP (SEARCH BASED) ----------------
 async def auto_deals(bot):
     await asyncio.sleep(10)
+
     while True:
         try:
-            print("Checking Amazon deals...")
+            print("Checking Amazon search deals...")
 
-            s=requests.Session()
-            s.headers.update(HEADERS)
-            r=s.get("https://www.amazon.in/deals",timeout=10)
+            search_urls=[
+                "https://www.amazon.in/s?k=earbuds",
+                "https://www.amazon.in/s?k=gaming+keyboard",
+                "https://www.amazon.in/s?k=power+bank",
+                "https://www.amazon.in/s?k=study+lamp",
+            ]
 
-            soup=BeautifulSoup(r.text,"lxml")
-            links=soup.select("a[href*='/dp/']")
+            for url in search_urls:
+                s=requests.Session()
+                s.headers.update(HEADERS)
+                r=s.get(url,timeout=10)
 
-            for a in links[:3]:
-                link="https://www.amazon.in"+a.get("href").split("?")[0]
-                await post_deal(bot,link)
+                soup=BeautifulSoup(r.text,"lxml")
+                links=soup.select("a[href*='/dp/']")
+
+                for a in links[:2]:
+                    link="https://www.amazon.in"+a.get("href").split("?")[0]
+                    await post_deal(bot,link)
 
         except Exception as e:
             print("AUTO DEAL ERROR:", e)
 
-        await asyncio.sleep(300)
+        await asyncio.sleep(300)   # 5 min test mode
 
 # ---------------- START BACKGROUND TASK ----------------
 async def start_background(app):
@@ -146,4 +155,3 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_message))
 app.post_init=start_background
 
 app.run_polling(drop_pending_updates=True, close_loop=False)
-
