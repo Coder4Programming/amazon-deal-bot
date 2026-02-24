@@ -52,18 +52,37 @@ def scrape(url):
         p=soup.select("span.a-price span.a-offscreen")
         if p: price=p[0].text.strip()
 
-        # ----- STRONG MRP DETECTION -----
+        # -------- ULTRA STRONG MRP DETECTION --------
+
+        # method 1
         m=soup.select_one("span.a-price.a-text-price span.a-offscreen")
         if m: mrp=m.text.strip()
 
+        # method 2
         if not mrp:
             m2=soup.find("span",{"id":"priceblock_ourprice"})
             if m2: mrp=m2.text.strip()
 
+        # method 3
         if not mrp:
             m3=soup.find("span",{"id":"priceblock_dealprice"})
             if m3: mrp=m3.text.strip()
 
+        # method 4 (JSON/script detection)
+        if not mrp:
+            scripts=soup.find_all("script")
+            for s in scripts:
+                if "₹" in s.text:
+                    matches=re.findall(r'₹[\d,]+',s.text)
+                    if matches:
+                        for val in matches:
+                            if val!=price:
+                                mrp=val
+                                break
+                if mrp:
+                    break
+
+        # method 5 fallback
         if not mrp:
             all_prices=soup.find_all("span")
             for a in all_prices:
@@ -111,7 +130,7 @@ async def post(bot,url):
     if not price:
         return
 
-    # ----- discount calc -----
+    # discount calc
     discount=""
     try:
         if price and mrp:
