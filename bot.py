@@ -1,6 +1,4 @@
-import os
-import requests
-import re
+import os, requests, re, json
 from bs4 import BeautifulSoup
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
@@ -33,27 +31,37 @@ def get_product_data(url):
         r = requests.get(url, headers=HEADERS, timeout=10)
         soup = BeautifulSoup(r.text, "lxml")
 
-        # TITLE
+        # TITLE method 1
         t = soup.find("span", {"id": "productTitle"})
         if t:
             title = t.text.strip()
 
-        # DEAL PRICE
-        p = soup.find("span", {"class": "a-offscreen"})
-        if p:
-            price = p.text.strip()
+        # TITLE fallback (meta tag)
+        if title == "Amazon Deal":
+            meta = soup.find("meta", property="og:title")
+            if meta:
+                title = meta.get("content", title)
 
-        # MRP
-        mrp_tag = soup.find("span", {"class": "a-price a-text-price"})
+        # PRICE (first visible price)
+        prices = soup.select("span.a-price span.a-offscreen")
+        if prices:
+            price = prices[0].text.strip()
+
+        # MRP (strike price)
+        mrp_tag = soup.select_one("span.a-price.a-text-price span.a-offscreen")
         if mrp_tag:
-            mrp_span = mrp_tag.find("span", {"class": "a-offscreen"})
-            if mrp_span:
-                mrp = mrp_span.text.strip()
+            mrp = mrp_tag.text.strip()
 
-        # IMAGE
+        # IMAGE method 1
         img = soup.find("img", {"id": "landingImage"})
         if img and img.get("src"):
             image = img["src"]
+
+        # IMAGE fallback
+        if not image:
+            meta_img = soup.find("meta", property="og:image")
+            if meta_img:
+                image = meta_img.get("content")
 
     except:
         pass
@@ -76,7 +84,7 @@ async def handle_message(update, context: ContextTypes.DEFAULT_TYPE):
         if mrp:
             caption += f"🏷 MRP: {mrp}\n"
 
-        # Discount calculation
+        # discount safe calculation
         try:
             if price and mrp:
                 p_val = extract_price_number(price)
