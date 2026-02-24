@@ -1,4 +1,4 @@
-import os, requests, re, asyncio
+import os, requests, asyncio, random
 from bs4 import BeautifulSoup
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
@@ -10,15 +10,12 @@ AFF_TAG="cyberguard224-21"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
     "Accept-Language": "en-IN,en;q=0.9",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Connection": "keep-alive",
     "Referer": "https://www.amazon.in/",
-    "Cache-Control": "no-cache",
 }
 
 posted_links=set()
 
-# -------- AFFILIATE LINK ADDER --------
+# ---------- Affiliate link maker ----------
 def make_affiliate_link(url):
     if "tag=" in url:
         return url
@@ -26,17 +23,15 @@ def make_affiliate_link(url):
         return url+"&tag="+AFF_TAG
     return url+"?tag="+AFF_TAG
 
-# -------- EXPAND SHORT LINK --------
+# ---------- Expand short link ----------
 def expand_url(url):
     try:
-        s=requests.Session()
-        s.headers.update(HEADERS)
-        r=s.get(url,allow_redirects=True,timeout=10)
+        r=requests.get(url,headers=HEADERS,allow_redirects=True,timeout=10)
         return r.url
     except:
         return url
 
-# -------- SCRAPER --------
+# ---------- Scraper ----------
 def get_product_data(url):
     title="Amazon Deal"
     price=""
@@ -44,46 +39,37 @@ def get_product_data(url):
     image=None
 
     try:
-        s=requests.Session()
-        s.headers.update(HEADERS)
-        r=s.get(url,timeout=10)
+        r=requests.get(url,headers=HEADERS,timeout=10)
         soup=BeautifulSoup(r.text,"lxml")
 
         t=soup.find("span",{"id":"productTitle"})
         if t: title=t.text.strip()
 
-        prices=soup.select("span.a-price span.a-offscreen")
-        if prices: price=prices[0].text.strip()
+        p=soup.select("span.a-price span.a-offscreen")
+        if p: price=p[0].text.strip()
 
-        mrp_tag=soup.select_one("span.a-price.a-text-price span.a-offscreen")
-        if mrp_tag: mrp=mrp_tag.text.strip()
+        m=soup.select_one("span.a-price.a-text-price span.a-offscreen")
+        if m: mrp=m.text.strip()
 
         img=soup.find("img",{"id":"landingImage"})
         if img and img.get("src"): image=img["src"]
 
-        if not image:
-            meta_img=soup.find("meta",property="og:image")
-            if meta_img: image=meta_img.get("content")
-
-    except Exception as e:
-        print("SCRAPE ERROR:", e)
+    except:
+        pass
 
     return title,price,mrp,image
 
-# -------- POST DEAL --------
+# ---------- Post deal ----------
 async def post_deal(bot,url):
-    print("POST DEAL CALLED:", url)
-
     if url in posted_links:
         return
 
-    real_url=expand_url(url)
-    aff_url=make_affiliate_link(real_url)
+    real=expand_url(url)
+    aff=make_affiliate_link(real)
 
-    title,price,mrp,image=get_product_data(real_url)
+    title,price,mrp,image=get_product_data(real)
 
     if not price:
-        print("No price found")
         return
 
     posted_links.add(url)
@@ -92,58 +78,52 @@ async def post_deal(bot,url):
     caption+=f"💰 Deal Price: {price}\n"
     if mrp:
         caption+=f"🏷 MRP: {mrp}\n"
-
-    caption+=f"\n👉 Buy Now:\n{aff_url}"
+    caption+=f"\n👉 Buy Now:\n{aff}"
 
     if image:
         await bot.send_photo(chat_id=CHANNEL,photo=image,caption=caption)
     else:
         await bot.send_message(chat_id=CHANNEL,text=caption)
 
-# -------- USER LINKS --------
+# ---------- Manual links ----------
 async def handle_message(update:Update,context:ContextTypes.DEFAULT_TYPE):
     text=update.message.text.strip()
     if text.startswith("http") and ("amazon" in text or "amzn" in text):
         await post_deal(context.bot,text)
 
-# -------- AUTO DEALS LOOP --------
+# ---------- NO-FILTER AMAZON SCAN ----------
 async def auto_deals(bot):
     await asyncio.sleep(10)
 
+    search_urls=[
+        "https://www.amazon.in/s?k=",
+        "https://www.amazon.in/gp/bestsellers",
+        "https://www.amazon.in/gp/new-releases",
+        "https://www.amazon.in/deals",
+    ]
+
     while True:
         try:
-            print("Checking Amazon search deals...")
-
-            search_urls=[
-                "https://www.amazon.in/s?k=earbuds",
-                "https://www.amazon.in/s?k=gaming+keyboard",
-                "https://www.amazon.in/s?k=power+bank",
-                "https://www.amazon.in/s?k=study+lamp",
-            ]
-
             for url in search_urls:
-                s=requests.Session()
-                s.headers.update(HEADERS)
-                r=s.get(url,timeout=10)
-
+                r=requests.get(url,headers=HEADERS,timeout=10)
                 soup=BeautifulSoup(r.text,"lxml")
                 links=soup.select("a[href*='/dp/']")
 
-                for a in links[:2]:
-                    link="https://www.amazon.in"+a.get("href").split("?")[0]
+                if links:
+                    chosen=random.choice(links)
+                    link="https://www.amazon.in"+chosen.get("href").split("?")[0]
                     await post_deal(bot,link)
 
-        except Exception as e:
-            print("AUTO DEAL ERROR:", e)
+        except:
+            pass
 
-        await asyncio.sleep(300)
+        await asyncio.sleep(120)   # 2-minute live mode
 
-# -------- START BACKGROUND TASK --------
+# ---------- Startup ----------
 async def start_background(app):
     asyncio.create_task(auto_deals(app.bot))
 
-# -------- BOT INIT --------
-app = ApplicationBuilder().token(os.environ.get("TOKEN")).concurrent_updates(False).build()
+app = ApplicationBuilder().token(TOKEN).concurrent_updates(False).build()
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_message))
 app.post_init=start_background
 
