@@ -5,6 +5,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTyp
 
 TOKEN = os.environ.get("TOKEN")
 CHANNEL = "@dailydeals4students"
+AFF_TAG="cyberguard224-21"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
@@ -17,7 +18,15 @@ HEADERS = {
 
 posted_links=set()
 
-# ---------------- EXPAND SHORT LINK ----------------
+# -------- AFFILIATE LINK ADDER --------
+def make_affiliate_link(url):
+    if "tag=" in url:
+        return url
+    if "?" in url:
+        return url+"&tag="+AFF_TAG
+    return url+"?tag="+AFF_TAG
+
+# -------- EXPAND SHORT LINK --------
 def expand_url(url):
     try:
         s=requests.Session()
@@ -27,7 +36,7 @@ def expand_url(url):
     except:
         return url
 
-# ---------------- SCRAPER ----------------
+# -------- SCRAPER --------
 def get_product_data(url):
     title="Amazon Deal"
     price=""
@@ -43,10 +52,6 @@ def get_product_data(url):
         t=soup.find("span",{"id":"productTitle"})
         if t: title=t.text.strip()
 
-        if title=="Amazon Deal":
-            meta=soup.find("meta",property="og:title")
-            if meta: title=meta.get("content",title)
-
         prices=soup.select("span.a-price span.a-offscreen")
         if prices: price=prices[0].text.strip()
 
@@ -60,21 +65,12 @@ def get_product_data(url):
             meta_img=soup.find("meta",property="og:image")
             if meta_img: image=meta_img.get("content")
 
-        # fallback price detection
-        if not price:
-            alt=soup.find_all("span")
-            for a in alt:
-                txt=a.text.strip()
-                if "₹" in txt and len(txt)<15:
-                    price=txt
-                    break
-
     except Exception as e:
         print("SCRAPE ERROR:", e)
 
     return title,price,mrp,image
 
-# ---------------- POST DEAL ----------------
+# -------- POST DEAL --------
 async def post_deal(bot,url):
     print("POST DEAL CALLED:", url)
 
@@ -82,7 +78,7 @@ async def post_deal(bot,url):
         return
 
     real_url=expand_url(url)
-    print("REAL URL:", real_url)
+    aff_url=make_affiliate_link(real_url)
 
     title,price,mrp,image=get_product_data(real_url)
 
@@ -94,26 +90,23 @@ async def post_deal(bot,url):
 
     caption=f"🔥 {title}\n\n"
     caption+=f"💰 Deal Price: {price}\n"
-
     if mrp:
         caption+=f"🏷 MRP: {mrp}\n"
 
-    caption+=f"\n👉 Buy Now:\n{url}"
+    caption+=f"\n👉 Buy Now:\n{aff_url}"
 
     if image:
         await bot.send_photo(chat_id=CHANNEL,photo=image,caption=caption)
     else:
         await bot.send_message(chat_id=CHANNEL,text=caption)
 
-# ---------------- USER LINKS ----------------
+# -------- USER LINKS --------
 async def handle_message(update:Update,context:ContextTypes.DEFAULT_TYPE):
     text=update.message.text.strip()
-    print("MESSAGE RECEIVED:", text)
-
     if text.startswith("http") and ("amazon" in text or "amzn" in text):
         await post_deal(context.bot,text)
 
-# ---------------- AUTO DEALS LOOP (SEARCH BASED) ----------------
+# -------- AUTO DEALS LOOP --------
 async def auto_deals(bot):
     await asyncio.sleep(10)
 
@@ -143,14 +136,14 @@ async def auto_deals(bot):
         except Exception as e:
             print("AUTO DEAL ERROR:", e)
 
-        await asyncio.sleep(300)   # 5 min test mode
+        await asyncio.sleep(300)
 
-# ---------------- START BACKGROUND TASK ----------------
+# -------- START BACKGROUND TASK --------
 async def start_background(app):
     asyncio.create_task(auto_deals(app.bot))
 
-# ---------------- BOT INIT ----------------
-app = ApplicationBuilder().token(TOKEN).concurrent_updates(False).build()
+# -------- BOT INIT --------
+app = ApplicationBuilder().token(os.environ.get("TOKEN")).concurrent_updates(False).build()
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_message))
 app.post_init=start_background
 
