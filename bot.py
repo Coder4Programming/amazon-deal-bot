@@ -7,6 +7,10 @@ TOKEN = os.environ.get("TOKEN")
 CHANNEL = "@dailydeals4students"
 AFF_TAG="cyberguard224-21"
 
+# -------- SETTINGS --------
+MIN_DISCOUNT = 30   # only post if >= this %
+MIN_RATING = 0      # set 4 to allow only 4★+ deals
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
     "Accept-Language": "en-IN,en;q=0.9",
@@ -14,6 +18,7 @@ HEADERS = {
 }
 
 posted_links=set()
+price_db={}
 
 # ---------- affiliate link ----------
 def make_affiliate_link(url):
@@ -22,14 +27,6 @@ def make_affiliate_link(url):
     if "?" in url:
         return url+"&tag="+AFF_TAG
     return url+"?tag="+AFF_TAG
-
-# ---------- short link ----------
-def shorten(url):
-    try:
-        r=requests.get("https://tinyurl.com/api-create.php?url="+url,timeout=10)
-        return r.text
-    except:
-        return url
 
 # ---------- expand short link ----------
 def expand_url(url):
@@ -77,42 +74,73 @@ def get_product_data(url):
 
     return title,price,mrp,image,rating,reviews
 
-# ---------- post deal ----------
+# ---------- POST DEAL ----------
 async def post_deal(bot,url):
-    if url in posted_links:
-        return
 
     real=expand_url(url)
     aff=make_affiliate_link(real)
-    aff=shorten(aff)
+
+    if real in posted_links:
+        return
 
     title,price,mrp,image,rating,reviews=get_product_data(real)
 
     if not price:
         return
 
+    # ---- discount calc ----
     discount=""
     try:
         if price and mrp:
             p=int(re.sub(r"\D","",price))
             m=int(re.sub(r"\D","",mrp))
             if m>p and m>p*1.1:
-                discount=str(int((m-p)/m*100))+"% OFF"
+                disc=int((m-p)/m*100)
+                discount=f"{disc}% OFF"
             else:
                 mrp=""
+        else:
+            return
     except:
-        mrp=""
+        return
 
-    posted_links.add(url)
+    # ---- discount filter ----
+    try:
+        d=int(discount.replace("% OFF",""))
+        if d < MIN_DISCOUNT:
+            return
+    except:
+        return
 
+    # ---- rating filter ----
+    try:
+        if rating and MIN_RATING>0:
+            r=float(rating)
+            if r < MIN_RATING:
+                return
+    except:
+        pass
+
+    # ---- price drop tracker ----
+    try:
+        pid = real.split("/dp/")[1].split("/")[0]
+        current=int(re.sub(r"\D","",price))
+
+        if pid in price_db:
+            old=price_db[pid]
+            if current >= old:
+                return
+        price_db[pid]=current
+    except:
+        pass
+
+    posted_links.add(real)
+
+    # ---- caption ----
     caption=f"🔥 {title}\n\n"
     caption+=f"💰 Deal Price: {price}\n"
-
-    if mrp:
-        caption+=f"🏷 MRP: {mrp}\n"
-
-    if discount:
-        caption+=f"🔥 Save: {discount}\n"
+    caption+=f"🏷 MRP: {mrp}\n"
+    caption+=f"🔥 Save: {discount}\n"
 
     if rating:
         caption+=f"⭐ Rating: {rating}"
@@ -120,6 +148,7 @@ async def post_deal(bot,url):
             caption+=f" ({reviews})"
         caption+="\n"
 
+    # ---- button ----
     keyboard=[[InlineKeyboardButton("🛒 Buy Now",url=aff)]]
     reply_markup=InlineKeyboardMarkup(keyboard)
 
@@ -137,7 +166,7 @@ async def handle_message(update:Update,context:ContextTypes.DEFAULT_TYPE):
         if "amazon" in url or "amzn" in url:
             await post_deal(context.bot,url)
 
-# ---------- auto amazon scan ----------
+# ---------- AUTO AMAZON SCAN ----------
 async def auto_deals(bot):
     await asyncio.sleep(10)
 
