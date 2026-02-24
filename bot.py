@@ -7,8 +7,12 @@ TOKEN = os.environ.get("TOKEN")
 CHANNEL = "@dailydeals4students"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
     "Accept-Language": "en-IN,en;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Connection": "keep-alive",
+    "Referer": "https://www.amazon.in/",
+    "Cache-Control": "no-cache",
 }
 
 posted_links=set()
@@ -16,15 +20,12 @@ posted_links=set()
 # ---------------- EXPAND SHORT LINK ----------------
 def expand_url(url):
     try:
-        r=requests.get(url,headers=HEADERS,allow_redirects=True,timeout=10)
+        s=requests.Session()
+        s.headers.update(HEADERS)
+        r=s.get(url,allow_redirects=True,timeout=10)
         return r.url
     except:
         return url
-
-# ---------------- PRICE UTILITY ----------------
-def extract_price_number(price_text):
-    nums=re.sub(r"[^\d]","",price_text or "")
-    return int(nums) if nums else None
 
 # ---------------- SCRAPER ----------------
 def get_product_data(url):
@@ -34,7 +35,9 @@ def get_product_data(url):
     image=None
 
     try:
-        r=requests.get(url,headers=HEADERS,timeout=10)
+        s=requests.Session()
+        s.headers.update(HEADERS)
+        r=s.get(url,timeout=10)
         soup=BeautifulSoup(r.text,"lxml")
 
         t=soup.find("span",{"id":"productTitle"})
@@ -57,6 +60,15 @@ def get_product_data(url):
             meta_img=soup.find("meta",property="og:image")
             if meta_img: image=meta_img.get("content")
 
+        # fallback price detection
+        if not price:
+            alt=soup.find_all("span")
+            for a in alt:
+                txt=a.text.strip()
+                if "₹" in txt and len(txt)<15:
+                    price=txt
+                    break
+
     except Exception as e:
         print("SCRAPE ERROR:", e)
 
@@ -70,6 +82,8 @@ async def post_deal(bot,url):
         return
 
     real_url=expand_url(url)
+    print("REAL URL:", real_url)
+
     title,price,mrp,image=get_product_data(real_url)
 
     if not price:
@@ -106,7 +120,10 @@ async def auto_deals(bot):
         try:
             print("Checking Amazon deals...")
 
-            r=requests.get("https://www.amazon.in/deals",headers=HEADERS,timeout=10)
+            s=requests.Session()
+            s.headers.update(HEADERS)
+            r=s.get("https://www.amazon.in/deals",timeout=10)
+
             soup=BeautifulSoup(r.text,"lxml")
             links=soup.select("a[href*='/dp/']")
 
