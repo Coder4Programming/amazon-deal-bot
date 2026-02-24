@@ -15,7 +15,7 @@ posted_links=set()
 
 # ---------------- PRICE UTILITY ----------------
 def extract_price_number(price_text):
-    nums=re.sub(r"[^\d]","",price_text)
+    nums=re.sub(r"[^\d]","",price_text or "")
     return int(nums) if nums else None
 
 # ---------------- SCRAPER ----------------
@@ -58,24 +58,41 @@ def get_product_data(url):
 async def post_deal(bot,url):
     if url in posted_links:
         return
-    posted_links.add(url)
 
     title,price,mrp,image=get_product_data(url)
 
+    p=extract_price_number(price)
+    m=extract_price_number(mrp)
+
+    if not p:
+        return
+
+    # ---------- FILTERS ----------
+    if p>3000:
+        return
+
+    discount=0
+    if p and m and m>p:
+        discount=int((m-p)/m*100)
+
+    if discount<40:
+        return
+
+    posted_links.add(url)
+
     caption=f"🔥 {title}\n\n"
-    if price: caption+=f"💰 Deal Price: {price}\n"
-    if mrp: caption+=f"🏷 MRP: {mrp}\n"
+    caption+=f"💰 Deal Price: {price}\n"
 
-    try:
-        if price and mrp:
-            p=extract_price_number(price)
-            m=extract_price_number(mrp)
-            if p and m and m>p:
-                caption+=f"🔥 Save: {int((m-p)/m*100)}% OFF\n"
-    except:
-        pass
+    if mrp:
+        caption+=f"🏷 MRP: {mrp}\n"
 
-    caption+=f"\n👉 Buy Now:\n{url}"
+    if discount:
+        caption+=f"🔥 Save: {discount}% OFF\n"
+
+    caption+=f"\n👉 Buy Now:\n{url}\n\n"
+    caption+="⚡ Limited deal – grab fast!\n"
+    caption+="📦 Join for daily student deals\n\n"
+    caption+="#AmazonDeals #StudentDeals #Loot"
 
     if image:
         await bot.send_photo(chat_id=CHANNEL,photo=image,caption=caption)
@@ -90,20 +107,22 @@ async def handle_message(update:Update,context:ContextTypes.DEFAULT_TYPE):
 
 # ---------------- AUTO DEALS LOOP ----------------
 async def auto_deals(bot):
-    await asyncio.sleep(60)  # wait 1 min after start
+    await asyncio.sleep(60)
+
     while True:
         try:
             r=requests.get("https://www.amazon.in/deals",headers=HEADERS,timeout=10)
             soup=BeautifulSoup(r.text,"lxml")
             links=soup.select("a[href*='/dp/']")
 
-            for a in links[:2]:
+            for a in links[:8]:
                 link="https://www.amazon.in"+a.get("href").split("?")[0]
                 await post_deal(bot,link)
+
         except:
             pass
 
-        await asyncio.sleep(3600)  # every hour
+        await asyncio.sleep(3600)
 
 # ---------------- START BACKGROUND TASK ----------------
 async def start_background(app):
