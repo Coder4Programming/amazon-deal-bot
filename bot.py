@@ -115,7 +115,7 @@ async def handle_message(update:Update,context:ContextTypes.DEFAULT_TYPE):
 
 # ---------------- AUTO DEALS LOOP ----------------
 async def auto_deals(bot):
-    await asyncio.sleep(60)
+    await asyncio.sleep(10)
     while True:
         try:
             print("Checking Amazon deals...")
@@ -134,7 +134,7 @@ async def auto_deals(bot):
         except Exception as e:
             print("AUTO DEAL ERROR:", e)
 
-        await asyncio.sleep(3600)
+        await asyncio.sleep(300)
 
 # ---------------- START BACKGROUND TASK ----------------
 async def start_background(app):
@@ -146,3 +146,4 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_message))
 app.post_init=start_background
 
 app.run_polling(drop_pending_updates=True, close_loop=False)
+
