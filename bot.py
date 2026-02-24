@@ -118,4 +118,5 @@ app=ApplicationBuilder().token(TOKEN).build()
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_message))
 app.post_init=start_background
 
-app.run_polling()
+app.run_polling(drop_pending_updates=True)
+
