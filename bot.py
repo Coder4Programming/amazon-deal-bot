@@ -1,5 +1,6 @@
-import os, requests, re, json, asyncio
+import os, requests, re, asyncio
 from bs4 import BeautifulSoup
+from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
 TOKEN = os.environ.get("TOKEN")
@@ -12,22 +13,18 @@ HEADERS = {
 
 posted_links=set()
 
-def expand_url(url):
-    try:
-        r=requests.get(url,headers=HEADERS,allow_redirects=True,timeout=10)
-        return r.url
-    except:
-        return url
-
+# ---------------- PRICE UTILITY ----------------
 def extract_price_number(price_text):
     nums=re.sub(r"[^\d]","",price_text)
     return int(nums) if nums else None
 
+# ---------------- SCRAPER ----------------
 def get_product_data(url):
     title="Amazon Deal"
     price=""
     mrp=""
     image=None
+
     try:
         r=requests.get(url,headers=HEADERS,timeout=10)
         soup=BeautifulSoup(r.text,"lxml")
@@ -54,15 +51,16 @@ def get_product_data(url):
 
     except:
         pass
+
     return title,price,mrp,image
 
+# ---------------- POST DEAL ----------------
 async def post_deal(bot,url):
     if url in posted_links:
         return
     posted_links.add(url)
 
-    real=expand_url(url)
-    title,price,mrp,image=get_product_data(real)
+    title,price,mrp,image=get_product_data(url)
 
     caption=f"🔥 {title}\n\n"
     if price: caption+=f"💰 Deal Price: {price}\n"
@@ -84,39 +82,39 @@ async def post_deal(bot,url):
     else:
         await bot.send_message(chat_id=CHANNEL,text=caption)
 
-async def auto_deals(bot):
-    await asyncio.sleep(60)   # wait 1 min after start
-    while True:
-        try:
-            url="https://www.amazon.in/deals"
-            r=requests.get(url,headers=HEADERS,timeout=10)
-            soup=BeautifulSoup(r.text,"lxml")
-
-            links=soup.select("a[href*='/dp/']")
-            count=0
-            for a in links:
-                link="https://www.amazon.in"+a.get("href").split("?")[0]
-                if link not in posted_links:
-                    await post_deal(bot,link)
-                    count+=1
-                if count>=2:
-                    break
-        except:
-            pass
-
-        await asyncio.sleep(3600)
-
-async def start_background(app):
-    asyncio.create_task(auto_deals(app.bot))
-
-async def handle_message(update,context:ContextTypes.DEFAULT_TYPE):
+# ---------------- USER LINKS ----------------
+async def handle_message(update:Update,context:ContextTypes.DEFAULT_TYPE):
     text=update.message.text.strip()
     if text.startswith("http") and ("amazon" in text or "amzn" in text):
         await post_deal(context.bot,text)
 
-app=ApplicationBuilder().token(TOKEN).build()
+# ---------------- AUTO DEALS LOOP ----------------
+async def auto_deals(bot):
+    await asyncio.sleep(60)  # wait 1 min after start
+    while True:
+        try:
+            r=requests.get("https://www.amazon.in/deals",headers=HEADERS,timeout=10)
+            soup=BeautifulSoup(r.text,"lxml")
+            links=soup.select("a[href*='/dp/']")
+
+            for a in links[:2]:
+                link="https://www.amazon.in"+a.get("href").split("?")[0]
+                await post_deal(bot,link)
+        except:
+            pass
+
+        await asyncio.sleep(3600)  # every hour
+
+# ---------------- START BACKGROUND TASK ----------------
+async def start_background(app):
+    asyncio.create_task(auto_deals(app.bot))
+
+# ---------------- BOT INIT ----------------
+app = ApplicationBuilder().token(TOKEN).concurrent_updates(False).build()
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,handle_message))
 app.post_init=start_background
 
-app.run_polling(drop_pending_updates=True)
-
+app.run_polling(
+    drop_pending_updates=True,
+    close_loop=False
+)
