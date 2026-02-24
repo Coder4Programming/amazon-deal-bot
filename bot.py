@@ -35,6 +35,9 @@ def expand(url):
 def scrape(url):
     title="Amazon Deal"
     price=""
+    mrp=""
+    rating=""
+    reviews=""
     image=None
 
     try:
@@ -47,14 +50,24 @@ def scrape(url):
         p=soup.select("span.a-price span.a-offscreen")
         if p: price=p[0].text.strip()
 
+        m=soup.select_one("span.a-price.a-text-price span.a-offscreen")
+        if m: mrp=m.text.strip()
+
         img=soup.find("img",{"id":"landingImage"})
-        if img and img.get("src"):
-            image=img["src"]
+        if img and img.get("src"): image=img["src"]
+
+        r_tag=soup.find("span",{"class":"a-icon-alt"})
+        if r_tag:
+            rating=r_tag.text.split(" ")[0]
+
+        rev=soup.find("span",{"id":"acrCustomerReviewText"})
+        if rev:
+            reviews=rev.text.strip()
 
     except:
         pass
 
-    return title,price,image
+    return title,price,mrp,rating,reviews,image
 
 # ---------- post ----------
 async def post(bot,url):
@@ -65,14 +78,40 @@ async def post(bot,url):
     if real in posted:
         return
 
-    title,price,image=scrape(real)
+    title,price,mrp,rating,reviews,image=scrape(real)
 
     if not price:
         return
 
+    # ----- discount calculation -----
+    discount=""
+    try:
+        if price and mrp:
+            p=int(re.sub(r"\D","",price))
+            m=int(re.sub(r"\D","",mrp))
+            if m>p and m>p*1.1:
+                discount=str(int((m-p)/m*100))+"% OFF"
+            else:
+                mrp=""
+    except:
+        mrp=""
+
     posted.add(real)
 
-    caption=f"🔥 {title}\n\n💰 {price}"
+    caption=f"🔥 {title}\n\n"
+    caption+=f"💰 Deal Price: {price}\n"
+
+    if mrp:
+        caption+=f"🏷 MRP: {mrp}\n"
+
+    if discount:
+        caption+=f"🔥 Save: {discount}\n"
+
+    if rating:
+        caption+=f"⭐ Rating: {rating}"
+        if reviews:
+            caption+=f" ({reviews})"
+        caption+="\n"
 
     keyboard=[[InlineKeyboardButton("🛒 Buy Now",url=aff)]]
     markup=InlineKeyboardMarkup(keyboard)
@@ -82,7 +121,7 @@ async def post(bot,url):
     else:
         await bot.send_message(chat_id=CHANNEL,text=caption,reply_markup=markup)
 
-# ---------- manual links ----------
+# ---------- manual ----------
 async def handle(update:Update,context:ContextTypes.DEFAULT_TYPE):
     text=update.message.text
     urls=re.findall(r'https?://\S+', text)
@@ -91,7 +130,7 @@ async def handle(update:Update,context:ContextTypes.DEFAULT_TYPE):
         if "amazon" in u or "amzn" in u:
             await post(context.bot,u)
 
-# ---------- auto deals ----------
+# ---------- auto ----------
 async def auto(bot):
     await asyncio.sleep(10)
 
@@ -109,14 +148,14 @@ async def auto(bot):
                 links=soup.select("a[href*='/dp/']")
 
                 if links:
-                    pick=random.choice(links)
+                    pick=random.choice(links[:8])
                     link="https://www.amazon.in"+pick.get("href").split("?")[0]
                     await post(bot,link)
 
         except Exception as e:
             print("AUTO ERROR:",e)
 
-        await asyncio.sleep(240)
+        await asyncio.sleep(120)
 
 # ---------- start ----------
 async def start(app):
